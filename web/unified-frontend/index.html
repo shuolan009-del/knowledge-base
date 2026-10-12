@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#fbfbfd" />
+  <meta name="description" content="掌柜智库 · 知识库智能智库：文档建库与对话检索" />
+  <title>掌柜智库 · 知识库</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230071e3'/%3E%3Cpath d='M9 11h14M9 16h14M9 21h9' stroke='white' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="styles.css" />
+  <script>
+    /* 登录门禁引导：首次渲染前决定「锁定 / 已登录」，避免未登录时内容一闪而过（FOUC）。
+       真正的校验逻辑见 app.js 的 authModule（checkAuth / submitLogin / logout）。 */
+    (function () {
+      try {
+        var authed = localStorage.getItem('kb.auth') === 'ok';
+        document.documentElement.classList.add(authed ? 'is-authed' : 'is-locked');
+      } catch (e) {
+        document.documentElement.classList.add('is-locked');
+      }
+    })();
+  </script>
+</head>
+<body>
+  <!-- ===================== 登录门禁（全站共用） ===================== -->
+  <div class="login-view" id="loginView">
+    <div class="login-bg" aria-hidden="true"></div>
+    <form class="login-card" id="loginForm" novalidate>
+      <span class="login-logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none">
+          <path d="M5 8h14M5 12h14M5 16h9" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+        </svg>
+      </span>
+      <h1 class="login-title">掌柜智库</h1>
+      <p class="login-sub">登录后即可使用文档建库与对话检索</p>
+
+      <label class="login-field">
+        <span>用户名</span>
+        <input type="text" id="loginUser" autocomplete="username" placeholder="请输入用户名" spellcheck="false" />
+      </label>
+      <label class="login-field">
+        <span>密码</span>
+        <input type="password" id="loginPass" autocomplete="current-password" placeholder="请输入密码" />
+      </label>
+
+      <p class="login-error" id="loginError" role="alert" aria-live="polite"></p>
+
+      <button class="btn btn-primary login-submit" id="loginSubmit" type="submit">登录</button>
+      <p class="login-hint">演示账号：<b>admin</b> / <b>kb2024</b></p>
+    </form>
+  </div>
+
+  <!-- ===================== 导航（全站共用） ===================== -->
+  <header class="nav" id="nav">
+    <div class="nav-inner">
+      <a class="nav-brand" href="index.html" aria-label="返回首页">
+        <span class="nav-logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none">
+            <path d="M5 8h14M5 12h14M5 16h9" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </span>
+        <span class="nav-name">掌柜智库</span>
+      </a>
+
+      <nav class="nav-links" aria-label="主导航">
+        <a href="import.html">建库</a>
+        <a href="chat.html">对话检索</a>
+        <a href="workflow.html">工作流</a>
+      </nav>
+
+      <div class="nav-actions">
+        <!-- 登录后显示的用户区（未登录时整体被门禁隐藏） -->
+        <div class="user-menu" id="userMenu" hidden>
+          <button class="user-trigger" id="userTrigger" type="button" aria-haspopup="true" aria-expanded="false">
+            <span class="user-avatar" data-user-avatar>A</span>
+            <span class="user-name" data-user-name>admin</span>
+            <span class="user-status" title="已登录"><i class="dot dot-ok"></i></span>
+            <svg class="user-caret" viewBox="0 0 24 24" width="12" height="12" fill="none" aria-hidden="true">
+              <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
+          <div class="user-dropdown" id="userDropdown" hidden role="menu">
+            <div class="user-dropdown-head">
+              <span class="user-avatar" data-user-avatar>A</span>
+              <div class="user-dropdown-meta">
+                <strong data-user-name>admin</strong>
+                <span>已登录</span>
+              </div>
+            </div>
+            <button class="user-dropdown-item is-danger" id="btnLogoutMenu" type="button" role="menuitem">退出登录</button>
+          </div>
+        </div>
+
+        <button class="nav-ghost" id="btnSettings" type="button">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" aria-hidden="true">
+            <circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.8" />
+            <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.65 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.56 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <span>设置</span>
+        </button>
+        <button class="nav-burger" id="btnBurger" type="button" aria-label="打开菜单" aria-expanded="false">
+          <span></span><span></span>
+        </button>
+      </div>
+    </div>
+    <div class="mobile-menu" id="mobileMenu" hidden>
+      <a href="import.html">建库</a>
+      <a href="chat.html">对话检索</a>
+      <a href="workflow.html">工作流</a>
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- ===================== Hero ===================== -->
+    <section class="hero">
+      <div class="hero-bg" aria-hidden="true"></div>
+      <div class="hero-inner">
+        <p class="eyebrow reveal">Knowledge Base Platform</p>
+        <h1 class="hero-title reveal">掌柜智库</h1>
+        <p class="hero-sub reveal">
+          上传产品手册，自动构建专属向量知识库；<br class="br-md" />
+          用一句自然语言提问，得到带阶段进度的可信回答。
+        </p>
+        <div class="hero-actions reveal">
+          <a class="btn btn-primary" href="import.html">开始建库</a>
+          <a class="btn btn-link" href="chat.html">
+            直接对话
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" aria-hidden="true">
+              <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 功能入口 ===================== -->
+    <section class="section">
+      <div class="section-head reveal">
+        <p class="eyebrow">功能入口</p>
+        <h2>三件事，一个控制台</h2>
+        <p class="section-sub">从文档建库到对话检索，按需进入对应页面。</p>
+      </div>
+
+      <div class="entry-grid">
+        <a class="entry-card reveal" href="import.html">
+          <span class="entry-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="none">
+              <path d="M12 16V5m0 0L7.5 9.5M12 5l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+              <path d="M4 15v2.5A2.5 2.5 0 0 0 6.5 20h11a2.5 2.5 0 0 0 2.5-2.5V15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+          </span>
+          <h3>建库</h3>
+          <p>批量上传 PDF / Markdown，实时查看导入流水线的节点进度与日志。</p>
+          <span class="entry-cta">
+            进入建库
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" aria-hidden="true">
+              <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </span>
+        </a>
+
+        <a class="entry-card reveal" href="chat.html">
+          <span class="entry-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="none">
+              <path d="M20 12a7.5 7.5 0 0 1-7.5 7.5H8l-4 3v-4.6A7.5 7.5 0 1 1 20 12z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </span>
+          <h3>对话检索</h3>
+          <p>自然语言提问，流式输出答案与阶段进度，支持历史记录与参考配图。</p>
+          <span class="entry-cta">
+            进入对话
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" aria-hidden="true">
+              <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </span>
+        </a>
+
+        <a class="entry-card reveal" href="workflow.html">
+          <span class="entry-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="none">
+              <circle cx="6" cy="6" r="2.4" stroke="currentColor" stroke-width="1.8" />
+              <circle cx="18" cy="12" r="2.4" stroke="currentColor" stroke-width="1.8" />
+              <circle cx="6" cy="18" r="2.4" stroke="currentColor" stroke-width="1.8" />
+              <path d="M8.2 7.2L15.6 11M8.2 16.8L15.6 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+          </span>
+          <h3>工作流</h3>
+          <p>了解导入与检索两条 LangGraph 流水线的节点构成与调用顺序。</p>
+          <span class="entry-cta">
+            查看工作流
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" aria-hidden="true">
+              <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </span>
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===================== 页脚（全站共用） ===================== -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <span class="nav-logo small" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none">
+            <path d="M5 8h14M5 12h14M5 16h9" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </span>
+        <span>掌柜智库 · 知识库智能智库</span>
+      </div>
+      <div class="footer-links">
+        <a href="import.html">建库</a>
+        <a href="chat.html">对话检索</a>
+        <a href="workflow.html">工作流</a>
+      </div>
+      <div class="footer-status">
+        <span class="status-chip" id="pillImport"><i class="dot dot-idle"></i>导入服务 检测中</span>
+        <span class="status-chip" id="pillQuery"><i class="dot dot-idle"></i>查询服务 检测中</span>
+      </div>
+      <p class="footer-note">多页静态站点 · 可直接被后端或 EdgeOne Makers 静态伺服</p>
+    </div>
+  </footer>
+
+  <!-- ===================== 设置弹窗（全站共用） ===================== -->
+  <div class="modal-mask" id="settingsMask" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <div class="modal-head">
+        <h3 id="settingsTitle">服务地址设置</h3>
+        <button class="modal-close" id="btnCloseSettings" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="modal-body">
+        <label class="field">
+          <span>导入服务 Base URL</span>
+          <input type="text" id="cfgImport" placeholder="http://127.0.0.1:8000" spellcheck="false" />
+        </label>
+        <label class="field">
+          <span>查询服务 Base URL</span>
+          <input type="text" id="cfgQuery" placeholder="http://127.0.0.1:8001" spellcheck="false" />
+        </label>
+        <p class="field-hint">
+          留空则使用页面默认值。修改后保存在本机浏览器，仅影响当前设备。
+          也可通过 URL 参数覆盖，例如 <code>?import=http://10.0.0.5:8000&amp;query=http://10.0.0.5:8001</code>。
+        </p>
+
+        <div class="modal-divider" role="separator"></div>
+        <div class="modal-account">
+          <div class="modal-account-text">
+            <strong>账号</strong>
+            <span>退出后需重新登录才能查看内容</span>
+          </div>
+          <button class="btn btn-danger-ghost btn-sm" id="btnLogout" type="button">退出登录</button>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost btn-sm" id="btnResetSettings" type="button">恢复默认</button>
+        <button class="btn btn-primary btn-sm" id="btnSaveSettings" type="button">保存并重连</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

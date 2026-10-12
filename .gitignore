@@ -1,0 +1,27 @@
+.env
+.venv
+
+# ===== 本地/敏感/无关文件，不纳入版本控制 =====
+# 真实密钥与运行配置（模板 .env.example 保留）
+.env
+# JetBrains / IDE 配置
+.idea/
+# Python 缓存与字节码
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+# 本地日志与运行时产物
+*.log
+logs/
+
+# WorkBuddy 本地记忆与配置（非项目代码）
+.workbuddy/
+
+# AI 工具自动安装的通用 skill 与个人配置（非本项目代码）
+.agents/skills/
+.claude/
+# AI 工具配置（.codex 含真实 API Key，绝不入库）
+.codex/
+# MinIO 二进制 105MB（超 GitHub 100MB 单文件限制，改为 Dockerfile 内下载）
+docker/minio-build/minio
