@@ -64,7 +64,6 @@ node_item_name_confirm（无法唯一确认 → 直接澄清/拒答，跳过检�
 
 ## 说明
 
-- 仓库内 `test/` 是可直接 `python xxx.py` 运行的脚本（无测试运行器）。
 - 更详细的开发 guidance 与易踩坑清单见 `CLAUDE.md`。
 - ⚠️ `DATA_BASED_ROOT_DIR` 环境变量无默认值且不在 `.env.example` 中，
   不设置会导致 `/upload` 在 `os.path.join` 处失败。

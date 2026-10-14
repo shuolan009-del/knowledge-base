@@ -16,7 +16,6 @@ All configuration lives in `.env` (template: `.env.example` — copy it and fill
 
 - Install deps: `uv sync` (or use the existing `.venv/Scripts/python.exe`).
 - Run any module's `__main__` demo directly: `python <module>.py`. Several modules (the graph files, `config_base.py`, `state.py`, config modules) ship an `if __name__ == "__main__"` sample you can run to exercise that piece standalone.
-- The scripts under `test/` are plain Python scripts run the same way (e.g. `python test/06-日志.py`); there is no test runner.
 
 ## Running the services
 
