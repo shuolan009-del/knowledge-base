@@ -105,7 +105,7 @@ if __name__ == "__main__":
     # 激活全局日志
     setup_logging()
 
-    # 组件是不是都启动  minio （时间同步）
+    # 组件是不是都启动（MinerU API / Milvus / embedding 模型 / 本地存储）
 
     init_state = {
         "import_file_path": r"F:\BaiduNetdiskDownload\13-企业级智能知识库系统项目\day01\资料\04-设备手册汇总\doc\hak180产品安全手册.pdf",

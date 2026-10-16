@@ -884,30 +884,29 @@
   })();
 
   /* ======================================================================
-     6. authModule —— 纯前端登录门禁
+     6. authModule —— 登录门禁已取消（2026-10-13 禾语农产品平台改造）
      ----------------------------------------------------------------------
-     ⚠️ 没有任何真实鉴权：账号密码是前端常量，登录态仅存在 localStorage。
-        接入真实后端时，替换 isAuthed()/submitLogin() 内的实现即可。
+     按平台要求，禾语农产品知识库允许直接访问，不再有前端登录门禁：
+       - isAuthed() 恒 true；applyState() 恒为已授权态（用户区常驻）
+       - 原「退出登录」语义改为「返回禾语农产品门户」（平台统一入口）
+     历史实现（前端常量账号 + localStorage 门禁）已废弃，保留函数签名
+     以便未来如需恢复门禁时低成本回退。
      ====================================================================== */
   const authModule = (() => {
     let form, userEl, passEl, errEl, card;
 
     function isAuthed() {
-      try {
-        return localStorage.getItem(CONFIG.storageKeys.auth) === AUTH.okValue;
-      } catch (_) {
-        return false;
-      }
+      return true; // 登录门禁已取消：允许直接访问
     }
 
-    /** 登录态 → <html> class + 右上角用户区显隐（内容显隐完全由 CSS 决定） */
+    /** 授权态 → <html> class + 右上角用户区显隐（内容显隐完全由 CSS 决定） */
     function applyState(authed) {
       const root = document.documentElement;
-      root.classList.toggle('is-authed', authed);
-      root.classList.toggle('is-locked', !authed);
+      root.classList.toggle('is-authed', true);
+      root.classList.remove('is-locked');
       const userMenu = $('#userMenu');
-      if (userMenu) userMenu.hidden = !authed;
-      if (authed) refreshReveals();
+      if (userMenu) userMenu.hidden = false;
+      if (authed !== false) refreshReveals();
     }
 
     function showError(msg) {
@@ -928,42 +927,21 @@
 
     function checkAuth() { applyState(isAuthed()); }
 
+    /** 登录已取消：保留入口以防未来恢复；当前直接放行 */
     function submitLogin(e) {
       if (e) e.preventDefault();
-      const u = (userEl.value || '').trim();
-      const p = passEl.value || '';
-
-      if (!u || !p) { showError('请输入用户名和密码'); return; }
-      if (u !== AUTH.user || p !== AUTH.pass) {
-        showError('用户名或密码不正确，请重试');
-        passEl.value = '';
-        passEl.focus();
-        return;
-      }
-
-      clearError();
-      try { localStorage.setItem(CONFIG.storageKeys.auth, AUTH.okValue); } catch (_) {}
       applyState(true);
-      setTimeout(() => { const inp = $('#input'); if (inp) inp.focus(); }, 320);
     }
 
-    /** 退出登录（清态 + 回到登录视图） */
+    /** 「退出登录」已取消：改为返回禾语农产品智能商管平台门户 */
     function logout() {
       try { localStorage.removeItem(CONFIG.storageKeys.auth); } catch (_) {}
-      if (userEl) userEl.value = '';
-      if (passEl) passEl.value = '';
-      clearError();
-      applyState(false);
-      const burger = $('#btnBurger');
-      const menu = $('#mobileMenu');
-      if (burger) burger.setAttribute('aria-expanded', 'false');
-      if (menu) menu.hidden = true;
-      setTimeout(() => userEl && userEl.focus(), 320);
+      window.open('http://127.0.0.1:5174/', '_blank', 'noopener');
     }
 
-    /** 带二次确认的退出（供用户区菜单 / 设置弹窗调用） */
+    /** 带二次确认的「返回门户」（供用户区菜单 / 设置弹窗调用） */
     function requestLogout(msg) {
-      if (!confirm(msg || '确定要退出登录吗？')) return;
+      if (!confirm(msg || '确定要返回禾语农产品智能商管平台门户吗？')) return;
       logout();
     }
 

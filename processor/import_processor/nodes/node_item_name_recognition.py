@@ -9,6 +9,7 @@ from langchain_openai import ChatOpenAI
 from pyexpat.errors import messages
 from pymilvus import DataType
 
+from config.embedding_config import embedding_config
 from config.lm_config import lm_config
 from config.milvus_config import milvus_config
 from processor.import_processor.base import BaseNode, setup_logging
@@ -66,7 +67,7 @@ class NodeItemNameRecognition(BaseNode):
         # # 步骤4：回填商品名称到状态和切片
         self._step_4_update_chunks(state, chunks, item_name)
         #
-        # 步骤5：为商品名称生成稠密/稀疏向量
+        # 步骤5：为商品名称生成向量（稠密；local-gpu 模式另有稀疏向量）
         dense_vector, sparse_vector = self._step_5_generate_vectors(item_name)
 
         # 步骤6：将数据存入Milvus向量数据库
@@ -248,25 +249,26 @@ class NodeItemNameRecognition(BaseNode):
 
     def _step_5_generate_vectors(self, item_name: str) -> Tuple[List, Dict]:
         """
-        步骤 5: 为商品名称生成 BGE-M3 稠密 + 稀疏双向量（Milvus 向量检索核心）
+        步骤 5: 为商品名称生成向量（Milvus 向量检索核心）
         核心说明：
-            - 稠密向量（dense_vector）：BGE-M3 固定 1024 维，记录文本深层语义信息
-            - 稀疏向量（sparse_vector）：变长键值对，记录文本关键词/特征位置信息
+            - 稠密向量（dense_vector）：local-gpu 模式 1024 维 / local-onnx 384 维 / api 1536 维，记录语义信息
+            - 稀疏向量（sparse_vector）：仅 local-gpu 模式产出，记录文本关键词/特征位置信息
         依赖工具：
-            generate_embeddings：封装 BGE-M3 模型，批量生成双向量，兼容单条/批量输入
+            generate_embeddings：封装 embedding 模型，批量生成向量，兼容单条/批量输入
         参数：
             item_name: 步骤 3 识别的商品名称（非空，空值时直接返回空向量）
         返回值：
-            Tuple[List, Dict]: (稠密向量列表，稀疏向量字典)
+            Tuple[List, Dict]: (稠密向量列表，稀疏向量字典或 None)
         """
 
         # 1. 空值时直接返回空向量
         if not item_name:
             return None, None
 
-        # 2. 使用向量模型生成稠密向量和稀疏向量  商品名称
+        # 2. 使用向量模型生成向量  商品名称
         vectors = generate_embeddings([item_name])
-        return vectors["dense"][0], vectors["sparse"][0]
+        sparse = vectors.get("sparse") or [None]
+        return vectors["dense"][0], sparse[0]
 
     def _step_6_save_to_milvus(self, state: ImportGraphState, file_title: str, item_name: str, dense_vector,
                                sparse_vector):
@@ -281,8 +283,8 @@ class NodeItemNameRecognition(BaseNode):
             state: 流程状态对象，用于最终状态同步
             file_title: 处理后的文件标题
             item_name: 识别后的商品名称（主键去重依据）
-            dense_vector: 步骤 5 生成的稠密向量（1024 维列表）
-            sparse_vector: 步骤 5 生成的稀疏向量（字典格式）
+            dense_vector: 步骤 5 生成的稠密向量（维度随当前 embedding 模式）
+            sparse_vector: 步骤 5 生成的稀疏向量（local-onnx / api 模式为 None）
         """
 
 
@@ -299,7 +301,9 @@ class NodeItemNameRecognition(BaseNode):
             # 判断集合是否已经被创建
             # 如果集合不存在
             if not milvus_client.has_collection(collection_name):
-                self._create_item_name_collection(collection_name, milvus_client)# 建表
+                # dense_dim 以实际向量长度为准，保证与当前 EMBED_MODE 的模型维度一致
+                dense_dim = len(dense_vector) if dense_vector is not None else embedding_config.dim
+                self._create_item_name_collection(collection_name, milvus_client, dense_dim)# 建表
 
             # 3. 幂等性处理：删除同名商品数据，避免重复存储
             file_title = escape_milvus_string(file_title)
@@ -323,7 +327,12 @@ class NodeItemNameRecognition(BaseNode):
             # 降级处理
             self.logger.warning(f"数据存入Milvus失败，跳过设备名称保存，错误原因:{str(e)}")
 
-    def _create_item_name_collection(self, collection_name, milvus_client):
+    def _create_item_name_collection(self, collection_name, milvus_client, dense_dim: int):
+        """
+        创建商品名称集合（dense-only）
+        :param dense_dim: 稠密向量维度（由实际向量长度传入，与当前 EMBED_MODE 匹配）
+        注意：旧版 (dense+sparse) 集合残留请换新集合名（.env 的 ITEM_NAME_COLLECTION）或手动 drop。
+        """
 
         # 1. 创建schema
         # enable_dynamic_field = True 表示的是 动态表  将来动态扩展（增加新的字段）
@@ -352,49 +361,22 @@ class NodeItemNameRecognition(BaseNode):
             max_length=100
         )
 
-        # 添加稠密向量字段（FLOAT_VECTOR类型，1024维，BGE-M3模型固定维度）
+        # 添加稠密向量字段（FLOAT_VECTOR类型，维度由当前 embedding 模式决定）
         schema.add_field(
             field_name="dense_vector",
             datatype=DataType.FLOAT_VECTOR,
-            dim=1024
-        )
-
-        # 添加稀疏向量字段（SPARSE_FLOAT_VECTOR类型，变长，适配BGE-M3的稀疏向量）
-        schema.add_field(
-            field_name="sparse_vector",
-            datatype=DataType.SPARSE_FLOAT_VECTOR
+            dim=dense_dim
         )
 
         # 3. 构建索引参数（提升向量检索性能）
         index_params = milvus_client.prepare_index_params()
-        # 为稠密向量创建索引（IVF_FLAT：兼容性好，适合小数据量）
-        # 核心是 “先聚类分桶、再桶内暴力精确检索”。
+        # 为稠密向量创建索引（AUTOINDEX：自适应索引，小数据量下检索精度与速度均衡）
         index_params.add_index(
             field_name="dense_vector",  # 字段名
             index_name="dense_vector_index",  # 索引名
-            index_type="IVF_FLAT",  # 索引类型（兼容所有Milvus版本）
+            index_type="AUTOINDEX",  # 索引类型（Milvus 自动选择，兼容各版本）
             metric_type="COSINE",  # 相似度计算方式（余弦相似度）
-            params={"nlist": 128}  # 聚类数（影响检索精度/速度）
         )
-
-        # 为稀疏向量创建索引（SPARSE_INVERTED_INDEX：稀疏向量专用索引）
-        index_params.add_index(
-            field_name="sparse_vector",  # 字段名
-            index_name="sparse_vector_index",  # 索引名
-            index_type="SPARSE_INVERTED_INDEX",  # 索引类型
-            metric_type="IP",  # 相似度计算方式（内积）
-            params={
-                "inverted_index_algo": "DAAT_MAXSCORE",
-                # 高效的稀疏检索算法
-
-                "normalize": True,
-                # ↑ L2 归一化，让内积 (IP) 等价于余弦相似度
-
-                "quantization": "none"
-                # ↑ 关闭量化，保持原始精度：模型生成的向量已经压缩的一半的精度了（BGE_FP16=1），这里就不再压缩了
-                # "quantization": "none" → 存储原始向量，不压缩
-                # "quantization": "sq8" → 存储压缩后的向量（8-bit 量化
-            })
 
         # 4. 创建集合（Schema + 索引）
         milvus_client.create_collection(
@@ -423,7 +405,7 @@ if __name__ == "__main__":
     node_item_name_recognition = NodeItemNameRecognition()
     result = node_item_name_recognition(init_state)
 
-    state_json_path = "D:\output\hak180产品安全手册\state.json"
+    state_json_path = r"D:\output\hak180产品安全手册\state.json"
 
     with open(state_json_path, "w", encoding="utf-8") as f:
         # ensure_ascii=False 保证中文字符不变成 \uXXXX 编码，indent=4 让输出格式化美观

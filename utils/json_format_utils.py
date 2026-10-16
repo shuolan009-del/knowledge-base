@@ -8,18 +8,24 @@ JSON 格式化工具模块
 
 
 from typing import Any, Dict
-from bson import ObjectId
 import json
 from datetime import datetime, date
 from decimal import Decimal
 from uuid import UUID
 
+# bson 来自 pymongo（可选依赖）：历史消息已从 MongoDB 迁至 SQLite，
+# 无 ObjectId 场景下优雅降级，避免强依赖 pymongo
+try:
+    from bson import ObjectId
+except ImportError:  # pragma: no cover - 取决于是否安装 pymongo
+    ObjectId = None
+
 class CustomJSONEncoder(json.JSONEncoder):
     """
-    自定义 JSON 编码器，支持 MongoDB ObjectId 等特殊类型
+    自定义 JSON 编码器，支持 ObjectId 等特殊类型（无 bson 时自动跳过）
     """
     def default(self, obj: Any) -> Any:
-        if isinstance(obj, ObjectId):
+        if ObjectId is not None and isinstance(obj, ObjectId):
             return str(obj)
         return super().default(obj)
 
@@ -38,7 +44,7 @@ class MongoEncoder(json.JSONEncoder):
     """
 
     def default(self, obj):
-        if isinstance(obj, ObjectId):
+        if ObjectId is not None and isinstance(obj, ObjectId):
             return str(obj)
         elif isinstance(obj, (datetime, date)):
             return obj.isoformat()

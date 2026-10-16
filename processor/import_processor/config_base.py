@@ -12,7 +12,13 @@ import os
 from dotenv import load_dotenv
 
 # 加载 .env 文件
-load_dotenv(override=True)
+# 注意：不要加 override=True——那会让 .env 覆盖真实环境变量（docker -e / CI / systemd），
+# 与本项目其他模块的 load_dotenv() 行为保持一致：真实环境变量优先，.env 只做缺省兜底
+load_dotenv()
+
+# 向量维度统一走 mode-aware 配置（EMBED_MODE 三档各自默认），
+# 避免此处再硬编码 1024 与 embedding_config.dim 出现两个真相来源
+from config.embedding_config import embedding_config  # noqa: E402
 
 
 @dataclass
@@ -69,24 +75,17 @@ class ImportConfig:
         default_factory=lambda: os.getenv("ITEM_NAME_COLLECTION", "")
     )
 
-    # ==================== MinIO 配置 ====================
-    minio_endpoint: str = field(
-        default_factory=lambda: os.getenv("MINIO_ENDPOINT", "")
+    # ==================== 本地存储配置（替代原 MinIO） ====================
+    storage_local_dir: str = field(
+        default_factory=lambda: os.getenv("STORAGE_LOCAL_DIR", "./storage")
     )
-    minio_access_key: str = field(
-        default_factory=lambda: os.getenv("MINIO_ACCESS_KEY", "")
+    storage_img_dir: str = field(
+        default_factory=lambda: os.getenv("STORAGE_IMG_DIR", "images")
     )
-    minio_secret_key: str = field(
-        default_factory=lambda: os.getenv("MINIO_SECRET_KEY", "")
-    )
-    minio_bucket: str = field(
-        default_factory=lambda: os.getenv("MINIO_BUCKET_NAME", "")
-    )
-    minio_secure: bool = False
 
     # ==================== 向量配置 ====================
     embedding_dim: int = field(
-        default_factory=lambda: int(os.getenv("EMBEDDING_DIM", "1024"))
+        default_factory=lambda: embedding_config.dim
     )
 
     embedding_batch_size: int = 8
@@ -98,12 +97,6 @@ class ImportConfig:
     def from_env(cls) -> "ImportConfig":
         """从环境变量加载配置"""
         return cls()
-
-    def get_minio_base_url(self) -> str:
-        """获取 MinIO 基础 URL"""
-        # localhost:9000
-        protocol = "https://" if self.minio_secure else "http://"
-        return protocol + f"{self.minio_endpoint}"
 
 
 # ==================== 全局单例 ====================
@@ -120,7 +113,7 @@ def get_config() -> ImportConfig:
 
 if __name__ == "__main__":
     a = get_config()
-    print(a.get_minio_base_url())
+    print(a.storage_local_dir)
     # a = get_config()
     # print(a.vl_model)
     # print(a.default_model)

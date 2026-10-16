@@ -67,9 +67,6 @@ class NodeImportMilvus(BaseNode):
         if 'dense_vector' not in first_chunk:
             raise StateFieldError(field_name="chunks", message="错误: 数据中缺失dense_vector字段")
 
-        if 'sparse_vector' not in first_chunk:
-            raise StateFieldError(field_name="chunks", message="错误: 数据中缺失sparse_vector字段")
-
         vector_dimension = len(first_chunk['dense_vector'])
         return chunks, vector_dimension
 
@@ -89,6 +86,11 @@ class NodeImportMilvus(BaseNode):
         return milvus_client
 
     def _create_chunks_collection(self, collections_name, milvus_client, vector_dimension):
+        """
+        新建切片集合 schema（dense-only）
+        注意：local-onnx / api 模式不含 sparse_vector 字段；
+        若使用旧版 (dense+sparse) 集合残留，请改 .env 的 CHUNKS_COLLECTION 换新集合名，或手动 drop 旧集合。
+        """
         # 新建schema，新增full_title完整标题字段
         schema = milvus_client.create_schema(auto_id=True, enable_dynamic_field=True)
         schema.add_field(field_name="chunk_id", datatype=DataType.INT64, is_primary=True, auto_id=True)
@@ -99,23 +101,15 @@ class NodeImportMilvus(BaseNode):
         schema.add_field(field_name="part", datatype=DataType.INT8)
         schema.add_field(field_name="file_title", datatype=DataType.VARCHAR, max_length=100)
         schema.add_field(field_name="item_name", datatype=DataType.VARCHAR, max_length=100)
-        schema.add_field(field_name="sparse_vector", datatype=DataType.SPARSE_FLOAT_VECTOR)
         schema.add_field(field_name="dense_vector", datatype=DataType.FLOAT_VECTOR, dim=vector_dimension)
 
-        # 索引逻辑完全不变
+        # 索引逻辑：仅保留稠密向量索引
         index_params = milvus_client.prepare_index_params()
         index_params.add_index(
             field_name="dense_vector",
             index_name="dense_vector_index",
             index_type="AUTOINDEX",
             metric_type="COSINE"
-        )
-        index_params.add_index(
-            field_name="sparse_vector",
-            index_name="sparse_inverted_index",
-            index_type="SPARSE_INVERTED_INDEX",
-            metric_type="IP",
-            params={"inverted_index_algo": "DAAT_MAXSCORE", "normalize": True, "quantization": "none"}
         )
 
         milvus_client.create_collection(

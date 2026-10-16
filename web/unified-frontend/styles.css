@@ -1,48 +1,56 @@
 /* ==========================================================================
-   掌柜智库 · 统一前端控制台
-   Apple 官网风格 — 克制、留白、细腻过渡
+   禾语农产品知识库 · 统一前端控制台（嘉禾品牌版）
+   配色/圆角/阴影/动效全部来自品牌令牌包 jiahe-brand-tokens@1.0.0
+   （同目录副本，由 sync-brand-tokens.py 同步，勿单独修改）。
+   本文件只保留本站命名（--bg/--brand 等）到品牌令牌的别名映射 + 站内特有变量。
    ========================================================================== */
+@import './jiahe-brand-tokens.css';
 
 :root {
-  /* 中性色 */
-  --bg: #fbfbfd;
-  --bg-alt: #f5f5f7;
-  --panel: #ffffff;
-  --text: #1d1d1f;
-  --text-2: #6e6e73;
-  --text-3: #86868b;
-  --line: #d2d2d7;
-  --line-soft: #e8e8ed;
-  --line-faint: #f0f0f2;
+  /* 命名别名映射（本站组件沿用原命名，值来自品牌令牌包） */
+  --bg: var(--surface-raised);
+  --bg-alt: var(--surface);
+  --panel: var(--surface);
+  --text: var(--text-primary);
+  --text-2: var(--text-secondary);
+  --text-3: var(--text-muted);
+  --line: var(--border);
+  --line-soft: var(--border-light);
+  --line-faint: var(--border-light);
 
-  /* 品牌色（Apple blue） */
-  --brand: #0071e3;
-  --brand-hover: #0077ed;
-  --brand-ink: #0058b8;
-  --brand-soft: rgba(0, 113, 227, 0.08);
+  --brand: var(--primary);
+  --brand-hover: var(--primary-hover);
+  --brand-ink: var(--primary-active);
+  --brand-soft: var(--primary-soft);
 
-  /* 语义色 */
-  --ok: #28a745;
-  --ok-soft: rgba(40, 167, 69, 0.1);
-  --warn: #f0a020;
-  --warn-soft: rgba(240, 160, 32, 0.12);
-  --err: #e5484d;
-  --err-soft: rgba(229, 72, 77, 0.1);
+  --ok: var(--success);
+  --ok-soft: var(--success-soft);
+  --warn: var(--warning);
+  --warn-soft: var(--warning-soft);
+  --err: var(--danger);
+  --err-soft: var(--danger-soft);
 
-  /* 圆角 / 阴影 */
-  --r-xl: 32px;
-  --r-lg: 22px;
-  --r-md: 16px;
-  --r-sm: 11px;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.035);
-  --shadow-md: 0 6px 24px rgba(0, 0, 0, 0.07);
-  --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.12);
+  /* 组件别名补齐（2026-10-16 修复，与「AI客服助手」同款问题）：
+     品牌包 v1.0.0 是缩写命名（--r-* / --sh-* / --dur-*），而本文件引用的
+     --shadow-* / --radius-* / --duration-* 全名从未接通 → 圆角/阴影/动效整体失效。
+     此处一次性补齐映射；品牌包恢复全名令牌后可删本段。 */
+  --radius-xs: var(--r-xs);
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-xl: var(--r-xl);
+  --radius-full: var(--r-full);
+  --shadow-sm: var(--sh-sm);
+  --shadow-md: var(--sh-md);
+  --shadow-lg: var(--sh-lg);
+  --duration-fast: var(--dur-fast);
+  --duration-base: var(--dur-base);
+  --duration-slow: var(--dur-slow);
 
-  /* 缓动 */
-  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
-  --ease-out: cubic-bezier(0.16, 0.68, 0.4, 1);
+  /* 本站过渡大量引用 --ease：对齐品牌标准缓动 */
+  --ease: var(--ease-standard);
 
-  --nav-h: 52px;
+  --nav-h: 60px; /* 与禾语农产品平台统一壳高度对齐 */
 }
 
 * { box-sizing: border-box; }

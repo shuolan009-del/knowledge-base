@@ -14,8 +14,8 @@ from processor.query_processor.prompt.item_name_confirm import ITEM_NAME_EXTRACT
 from processor.query_processor.state import QueryGraphState
 from tool.logger import logger
 from utils.embedding_utils import generate_embeddings
-from utils.milvus_utils import get_milvus_client, create_hybrid_search_requests, hybrid_search
-from utils.mongo_history_utils import save_chat_message, get_recent_messages, update_message_item_names
+from utils.milvus_utils import get_milvus_client, search_by_embeddings
+from utils.history_utils import save_chat_message, get_recent_messages, update_message_item_names
 from utils.task_utils import add_done_task
 
 
@@ -39,8 +39,8 @@ class NodeItemNameConfirm(NodeBase):
         session_id, original_query = self._step_1_validate_param(state)
         logger.info(f"步骤1：参数校验通过")
 
-        # 步骤2：获取历史记录  校验完了 你有原始问题 和会话ID  我先MongoDB 找历史记录
-        history = get_recent_messages(session_id)  # 根据你提供的会话ID 去Mongo找历史记录
+        # 步骤2：获取历史记录  校验完了 你有原始问题 和会话ID  我先从历史库找记录
+        history = get_recent_messages(session_id)  # 根据你提供的会话ID 查历史记录
         logger.info(f"步骤2：获取到 {len(history)} 条历史消息")
         # 更新状态
         state["history"] = history  # 很重要
@@ -203,7 +203,7 @@ class NodeItemNameConfirm(NodeBase):
 
     def _step_8_write_history(self, state, session_id, rewritten_query, message_id):
         """
-         8 把本次处理的核心信息（用户问题、助手答案、商品名、改写查询）写入MongoDB的会话历史
+         8 把本次处理的核心信息（用户问题、助手答案、商品名、改写查询）写入SQLite的会话历史
          包含2个核心操作：1. 写入助手答案（若有）；2. 更新用户原始问题的关联信息
          :param state: 字典 - step6更新后的会话状态，包含answer/item_names等字段
          :param session_id: 字符串 - 会话唯一标识
@@ -236,7 +236,8 @@ class NodeItemNameConfirm(NodeBase):
 
     def _step_5_vectorize_and_query(self, item_names) -> List[Dict]:
         """
-           把分析出的item_names逐个向量化（BGEM3模型），并在Milvus向量数据库(kb_item_names)中执行混合搜索，获取匹配评分
+           把分析出的item_names逐个向量化（当前 embedding 模式），并在Milvus向量数据库(kb_item_names)中执行向量搜索，获取匹配评分
+           有稀疏向量（local-gpu 模式）走混合检索，无则纯稠密检索
            :param item_names: 列表[字符串] - 步骤4中 提取的商品名列表（如["苹果15", "华为P60"]）
            :return: 列表[字典] - 格式：
                 [
@@ -270,10 +271,9 @@ class NodeItemNameConfirm(NodeBase):
         # 集合名 （表名） 自己识别出来 商品   向量数据库 里面存的商品 进行检索（相似度对比）
         collection_name = milvus_config.item_name_collection  # kb_item_names
 
-        # 5、对所有商品名称批量生成BGEM3向量（稠密+稀疏），相比逐个生成提升处理效率
-        # embeddings格式：{"dense": [向量1, 向量2,...], "sparse": [向量1, 向量2,...]}
+        # 5、对所有商品名称批量生成向量（稠密；local-gpu 模式另有稀疏）
+        # embeddings格式：{"dense": [向量1, 向量2,...], "sparse": [...]或[]}
         # 用户新提出来 问题里面  带的商品名称
-        # 向量化稀疏向量+稠密向量
         embeddings = generate_embeddings(item_names)
 
         # 6、遍历每个商品名称，逐个执行向量搜索（保证结果与原始商品名一一对应）
@@ -281,28 +281,20 @@ class NodeItemNameConfirm(NodeBase):
             try:
                 # 从批量生成的向量结果中，取出当前商品名对应的稠密向量（高维连续值，如[0.12, 0.35,...]）
                 dense_vector = embeddings.get("dense")[i]
-                # 从批量生成的向量结果中，取出当前商品名对应的稀疏向量（键值对，如{100:0.747, 205:0.664}）
-                sparse_vector = embeddings.get("sparse")[i]
+                # 稀疏向量（local-onnx / api 模式为 None）
+                sparse_vector = (embeddings.get("sparse") or [None] * len(item_names))[i]
 
-                # 构造Milvus混合搜索请求对象，传入稠/稀疏向量，指定返回Top5匹配结果
-                # reqs返回格式：[稠密向量搜索请求, 稀疏向量搜索请求]
-                # 调请求对象
-                reqs = create_hybrid_search_requests(
-                    dense_vector=dense_vector,
-                    sparse_vector=sparse_vector,
-                    limit=5  # 5条
-                )
-
-                # 执行BGEM3混合向量搜索，获取数据库中的匹配结果和评分
-                # 默认配置：稠/稀疏向量权重各0.8/0.2，开启评分归一化（将距离值转为0-1相似度评分）
-                search_res = hybrid_search(
+                # 执行向量搜索（有稀疏走混合检索，无则纯稠密），获取数据库中的匹配结果和评分
+                # 稠/稀疏向量权重 0.8/0.2，开启评分归一化（将距离值转为0-1相似度评分）
+                search_res = search_by_embeddings(
                     client=client,  # Milvus客户端连接实例
                     collection_name=collection_name,  # 目标向量集合名（存储商品向量的表）
-                    reqs=reqs,  # 混合搜索请求对象列表
-                    ranker_weights=(0.8, 0.2),  # 稠/稀疏向量评分权重配比（和为1最佳）
+                    dense_vector=dense_vector,  # 稠密向量
+                    sparse_vector=sparse_vector,  # 稀疏向量（可为 None）
                     limit=5,  # 最终返回Top5匹配结果
                     norm_score=True,  # 开启评分归一化，统一评分量级为0-1
-                    output_fields=["item_name"]  # 指定返回Milvus中存储的商品名字段（业务字段）
+                    output_fields=["item_name"],  # 指定返回Milvus中存储的商品名字段（业务字段）
+                    ranker_weights=(0.8, 0.2),  # 稠/稀疏向量评分权重配比（和为1最佳）
                 )
                 # 判断有没有召回
                 # 初始化当前商品名的匹配结果列表，存储匹配到的商品名+对应相似度评分

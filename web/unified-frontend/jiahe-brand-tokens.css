@@ -1,0 +1,97 @@
+/* jiahe-brand-tokens@1.0.0 · 由 sync-brand-tokens.py 同步生成，勿单独修改。
+   源与规范：F:\jiahe-platform-frontend\brand-tokens\jiahe-brand-tokens.css */
+/* ============================================================================
+   jiahe-brand-tokens@1.0.0 — 禾语农产品智能商管平台 · 品牌设计令牌包
+   ----------------------------------------------------------------------------
+   单一事实源：F:\jiahe-platform-frontend\brand-tokens\jiahe-brand-tokens.css
+   三项目（禾语农产品AI客服 / 禾语农产品AI运营助手 / 禾语农产品知识库）各持一份拷贝，头部注明版本；
+   修改必须在此源文件改并升版本，经 scripts/sync-brand-tokens.py 同步。
+   配色严格对齐「田舍」logo 取色：嘉禾绿 #2E7D32 + 禾金棕 #B8823C。
+
+   命名约定（跨项目统一，组件迁移零改名）：
+     --primary-*   主色系（嘉禾绿）      --accent-*   辅色系（禾金棕）
+     --ink-*       中性阶                --surface*   表面
+     --r-*         圆角阶梯              --sh-*       阴影三档
+     --ease-*      缓动                  --dur-*      动效时长
+   ============================================================================ */
+:root {
+  /* ── 主色：嘉禾绿（logo 禾苗/左圆）───────────────────────────────── */
+  --primary: #2E7D32;
+  --primary-hover: #1B5E20;
+  --primary-active: #174E1C;
+  --primary-soft: #E3F2E5;
+  --primary-soft-bg: #F4FAF4;
+  --on-primary: #FFFFFF;
+
+  /* ── 辅色：禾金棕（logo 屋宇/麦穗）────────────────────────────────── */
+  --accent: #B8823C;
+  --accent-hover: #96692C;
+  --accent-soft: #F7EEDC;
+  --accent-soft-bg: #FCF8F0;
+  --on-accent: #FFFFFF;
+
+  /* ── 语义色 ───────────────────────────────────────────────────────── */
+  --success: #2E7D32;
+  --success-soft: #E3F2E5;
+  --warning: #B45309;
+  --warning-soft: #FDF3E3;
+  --danger: #B42318;
+  --danger-soft: #FDE4E2;
+  --info: #1D4ED8;
+  --info-soft: #E3EDFA;
+
+  /* ── 中性阶 ink（slate 系）────────────────────────────────────────── */
+  --ink-50: #F8FAFC;
+  --ink-100: #F1F5F9;
+  --ink-200: #E2E8F0;
+  --ink-300: #CBD5E1;
+  --ink-400: #94A3B8;
+  --ink-500: #64748B;
+  --ink-600: #475569;
+  --ink-700: #334155;
+  --ink-800: #1E293B;
+  --ink-900: #0F172A;
+
+  /* ── 表面 ─────────────────────────────────────────────────────────── */
+  --surface: #FFFFFF;
+  --surface-raised: #F7F9F6;
+  --surface-hover: #EDF4ED;
+  --surface-field: #FFFFFF;
+  --border: #E2E8F0;
+  --border-light: #EEF2F6;
+  --border-strong: #CBD5E1;
+
+  --text-primary: #0F172A;
+  --text-secondary: #334155;
+  --text-muted: #5B6B7C;
+
+  /* ── 圆角阶梯 ─────────────────────────────────────────────────────── */
+  --r-xs: 4px;
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 16px;
+  --r-xl: 22px;
+  --r-full: 9999px;
+
+  /* ── 阴影三档（低饱和）────────────────────────────────────────────── */
+  --sh-sm: 0 1px 2px rgba(15, 23, 42, .05);
+  --sh-md: 0 4px 14px rgba(15, 23, 42, .08);
+  --sh-lg: 0 14px 36px rgba(15, 23, 42, .13);
+
+  /* ── 动效体系 ─────────────────────────────────────────────────────── */
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --ease-in-out: cubic-bezier(.4, 0, .2, 1);
+  --ease-standard: cubic-bezier(.4, 0, .2, 1);
+  --dur-fast: 120ms;
+  --dur-base: 220ms;
+  --dur-slow: 360ms;
+
+  /* ── 布局常量 ─────────────────────────────────────────────────────── */
+  --shell-h: 60px;        /* 统一顶栏高度 */
+  --content-max: 1200px;  /* 内容最大宽 */
+  --focus: 0 0 0 3px var(--primary-soft);
+
+  /* ── 字体 ─────────────────────────────────────────────────────────── */
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-mono: "Cascadia Code", Consolas, "Courier New", monospace;
+}

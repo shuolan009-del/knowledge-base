@@ -93,7 +93,7 @@ def hybrid_search(client, collection_name, reqs, ranker_weights=(0.5, 0.5), norm
     """
     try:
         # 初始化加权排名器：按权重融合稠密/稀疏向量的搜索结果
-        # norm_score=True：先将两个向量评分归一化到0~1区间，再加权计算，避免一个得分特别大、另一个特别小导致权重失效。
+        # norm_score=True：先将两个向量评分归一化到0~1区间，再加权计算，避免一个得分特别大，另一个特别小导致权重失效。
         # 版本：V2.4
         # 创建排名器（加权排名）   RRF 倒排融合
         rerank = WeightedRanker(ranker_weights[0], ranker_weights[1], norm_score=norm_score)
@@ -116,4 +116,56 @@ def hybrid_search(client, collection_name, reqs, ranker_weights=(0.5, 0.5), norm
         return res
     except Exception as e:
         logger.error(f"Milvus混合搜索执行失败，集合[{collection_name}]：{str(e)}", exc_info=True)
+        return None
+
+
+def search_by_embeddings(client, collection_name, dense_vector, sparse_vector=None,
+                         expr=None, limit=5, output_fields=None,
+                         ranker_weights=(0.8, 0.2), norm_score=False):
+    """
+    统一检索入口：有稀疏向量走混合检索（local-gpu 模式），无稀疏向量走纯稠密检索（local-onnx / api 模式）。
+    dense-only 是服务器轻量部署的默认路径：集合 schema 只建 dense_vector 字段。
+    :param client: MilvusClient实例
+    :param collection_name: 集合名称
+    :param dense_vector: 稠密向量（list[float]）
+    :param sparse_vector: 稀疏向量（dict），空值/None 表示 dense-only
+    :param expr: 过滤表达式，如 item_name in ["A","B"]
+    :param limit: 返回条数
+    :param output_fields: 返回字段，默认 item_name
+    :param ranker_weights: 混合检索时的稠/稀疏权重
+    :param norm_score: 混合检索时是否归一化评分
+    :return: 搜索结果（res[0] 为命中列表），失败返回 None
+    """
+    if sparse_vector:
+        reqs = create_hybrid_search_requests(
+            dense_vector=dense_vector,
+            sparse_vector=sparse_vector,
+            expr=expr,
+            limit=limit
+        )
+        return hybrid_search(
+            client=client,
+            collection_name=collection_name,
+            reqs=reqs,
+            ranker_weights=ranker_weights,
+            norm_score=norm_score,
+            limit=limit,
+            output_fields=output_fields
+        )
+
+    # dense-only：单路 ANN 检索
+    try:
+        res = client.search(
+            collection_name=collection_name,
+            data=[dense_vector],
+            anns_field="dense_vector",
+            filter=expr,
+            limit=limit,
+            output_fields=output_fields or ["item_name"],
+            search_params={"metric_type": "COSINE"}
+        )
+        logger.info(f"Milvus稠密检索完成，集合[{collection_name}]共检索到{len(res[0])}条结果")
+        return res
+    except Exception as e:
+        logger.error(f"Milvus稠密检索执行失败，集合[{collection_name}]：{str(e)}", exc_info=True)
         return None

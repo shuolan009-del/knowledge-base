@@ -5,14 +5,14 @@ from processor.query_processor.state import QueryGraphState
 from tool.logger import logger
 from utils.embedding_utils import generate_embeddings
 from utils.json_format_utils import serialize_json
-from utils.milvus_utils import create_hybrid_search_requests, get_milvus_client, hybrid_search
+from utils.milvus_utils import get_milvus_client, search_by_embeddings
 # ========== 新增导入 ==========
 from utils.task_utils import add_done_task   # 用于记录任务完成状态
 
 
 class NodeSearchEmbedding(NodeBase):
     """
-   节点功能：基于已确认主体名+改写后的用户问题，执行Milvus向量数据库混合检索
+   节点功能：基于已确认主体名+改写后的用户问题，执行Milvus向量数据库检索（dense-only / 混合自适应）
     """
 
     # 覆盖基类的 name 属性，标识节点名称
@@ -21,7 +21,7 @@ class NodeSearchEmbedding(NodeBase):
     def process(self, state: QueryGraphState) -> QueryGraphState:
         """
         核心节点函数：基于已确认商品名+改写后的用户问题，执行Milvus向量数据库混合检索
-        流程：用户问题向量化 → 构造带商品名过滤的混合搜索请求 → 执行稠密+稀疏混合检索 → 返回检索结果
+        流程：用户问题向量化 → 构造带商品名过滤的检索请求 → 执行向量检索（有稀疏走混合，无则纯稠密）→ 返回检索结果
         :param state: Dict - 会话状态字典，包含上游传递的核心信息，关键字段：
                       {
                           "rewritten_query": str,   # step4改写后的完整用户问题（含商品名）
@@ -41,10 +41,10 @@ class NodeSearchEmbedding(NodeBase):
             query = state.get("rewritten_query")
             item_names = state.get("item_names")
 
-            # 2、生成向量 (Dense + Sparse)
+            # 2、生成向量 (Dense；local-gpu 模式另有 Sparse)
             embeddings = generate_embeddings([query])
             dense_vec = embeddings.get("dense")[0]
-            sparse_vec = embeddings.get("sparse")[0]
+            sparse_vec = (embeddings.get("sparse") or [None])[0]
 
             # 3. 获取Milvus的集合
             collection_name = milvus_config.chunks_collection
@@ -60,23 +60,18 @@ class NodeSearchEmbedding(NodeBase):
             else:
                 logger.info("未指定商品名过滤，将全库检索")
 
-            # 5、构造Milvus混合搜索请求对象
-            reqs = create_hybrid_search_requests(
-                dense_vector=dense_vec,
-                sparse_vector=sparse_vec,
-                expr=expr,# 表达式： BrotherHAK-180烫金机","BrotherHAK180烫金机
-                limit=10  # 底层检索返回数量（后续会再过滤为5，预留更多结果做重排序）
-            )
-
-            # 6、执行混合向量检索
-            logger.info("开始执行 Milvus 混合检索...")
+            # 5、执行向量检索（有稀疏向量走混合检索，无则纯稠密检索）
+            logger.info("开始执行 Milvus 检索...")
             client = get_milvus_client()
-            res = hybrid_search(# 检索 混合检索
+            res = search_by_embeddings(
                 client=client,
                 collection_name=collection_name,  # 检索的目标集合名（文本片段向量集合）
-                reqs=reqs,  # 构造好的混合搜索请求对象（稠密+稀疏）
-                ranker_weights=(0.8, 0.2),  # 稠/稀疏向量评分权重配比，各占50%（可按业务调优）
-                output_fields=["chunk_id", "content", "item_name"]  # 指定返回的业务字段
+                dense_vector=dense_vec,            # 稠密向量
+                sparse_vector=sparse_vec,          # 稀疏向量（local-onnx / api 模式为 None）
+                expr=expr,                        # 商品名过滤表达式
+                limit=10,                         # 底层检索返回数量（后续会再过滤为5，预留更多结果做重排序）
+                output_fields=["chunk_id", "content", "item_name"],  # 指定返回的业务字段
+                ranker_weights=(0.8, 0.2)         # 稠/稀疏向量评分权重配比（可按业务调优）
             )
             # ========== 调用 add_done_task 记录完成 ==========
             add_done_task(state.get("session_id"), self.name, state.get("is_stream"))

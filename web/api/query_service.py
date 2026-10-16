@@ -1,17 +1,20 @@
 """
 查询流程的接口定义
 """
+import os
 import uuid
 from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import FileResponse, StreamingResponse
 
+from config.storage_config import storage_config
 from processor.query_processor.main_graph import KBQueryWorkflow
-from utils.mongo_history_utils import clear_history, get_recent_messages
+from utils.history_utils import clear_history, get_recent_messages
 from utils.sse_utils import create_sse_queue, SSEEvent, push_to_session, sse_generator
 from utils.task_utils import update_task_status, TASK_STATUS_PROCESSING, get_task_result, TASK_STATUS_COMPLETED, \
     TASK_STATUS_FAILED
@@ -40,6 +43,11 @@ async def chat():
     if not html_path.exists():
         raise HTTPException(status_code=404, detail=f"没有查询到页面，地址为：{html_path}")
     return FileResponse(html_path)
+
+
+# 3. 静态资源路由：本地存储目录（图片等）挂载到 /storage
+os.makedirs(storage_config.local_dir, exist_ok=True)
+app.mount("/storage", StaticFiles(directory=storage_config.local_dir), name="storage")
 
 
 # 定义接口接收的数据结构

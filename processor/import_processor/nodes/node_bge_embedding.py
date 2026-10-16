@@ -25,7 +25,7 @@ class NodeBGEEmbedding(BaseNode):
             3. 状态更新：将带向量的chunks更新回全局状态，供下游Milvus入库节点使用
 
         必要参数：chunks
-        更新参数：chunks字段新增dense_vector/sparse_vector
+        更新参数：chunks字段新增dense_vector（local-gpu 模式另有 sparse_vector）
 
         :param state: 工作流状态对象
         :return: 更新后的状态对象
@@ -69,13 +69,13 @@ class NodeBGEEmbedding(BaseNode):
         """
         步骤 2: 批量生成向量（核心业务逻辑）
         核心逻辑：
-            1. 分批处理：避免一次性处理过多数据导致显存溢出（OOM）。
+            1. 分批处理：避免一次性处理过多数据导致内存溢出（OOM）。
             2. 文本构造：将 item_name 和 content 拼接，增强语义（商品名作为核心特征前置）。
-            3. 向量生成：调用模型批量生成 Dense（稠密）和 Sparse（稀疏）向量。
+            3. 向量生成：调用模型批量生成 Dense 向量；local-gpu 模式额外产出 Sparse 向量。
         参数：
             chunks: List[Dict] 待向量化的文本切片列表
         返回：
-            List[Dict]: 包含向量字段（dense_vector/sparse_vector）的文本切片列表
+            List[Dict]: 包含向量字段（dense_vector，local-gpu 模式另有 sparse_vector）的文本切片列表
         """
 
         # 定义批处理数量
@@ -93,12 +93,14 @@ class NodeBGEEmbedding(BaseNode):
             # 批量生成向量
             vectors = generate_embeddings(texts)# 向量化
             dense_vectors = vectors.get("dense")# 稠密向量
-            sparse_vectors = vectors.get("sparse")# 稀疏向量
+            # local-onnx / api 模式无稀疏向量，用 None 占位
+            sparse_vectors = vectors.get("sparse") or [None] * len(texts)# 稀疏向量
 
             for j, text in enumerate(texts):
                 chunk = batch_chunks[j]
                 chunk["dense_vector"] = dense_vectors[j]# 稠密向量
-                chunk["sparse_vector"] = sparse_vectors[j] # 稀疏向量
+                if sparse_vectors[j] is not None:
+                    chunk["sparse_vector"] = sparse_vectors[j] # 稀疏向量
                 output_data.append(chunk)
 
         return output_data
@@ -123,7 +125,7 @@ if __name__ == "__main__":
     node_bge_embedding = NodeBGEEmbedding()
     result = node_bge_embedding(init_state)
 
-    vector_json_path = "D:\output\hak180产品安全手册\state_vector.json"
+    vector_json_path = r"D:\output\hak180产品安全手册\state_vector.json"
 
     with open(vector_json_path, "w", encoding="utf-8") as f:
         # ensure_ascii=False 确保中文字符及特殊标点正常显示，indent=4 让高维向量的数字排版美观

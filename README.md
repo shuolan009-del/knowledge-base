@@ -19,23 +19,35 @@
 
 ## 依赖的基础设施
 
-全部外部部署，通过 `.env` 配置（模板见 `.env.example`，按子系统分组注释）：
+默认配置面向**单机轻量部署（2 核 2G 即可）**，全部通过 `.env` 配置（模板见 `.env.example`，按子系统分组注释）：
 
-- **Milvus** — 向量库（chunk 与商品名两个 collection）
-- **MongoDB** — 会话历史
-- **MinIO** — 对象存储（文档 / 图片）
+- **Milvus** — 向量库（chunk 与商品名两个 collection）。
+  默认 `MILVUS_URL=./milvus.db` 走 **Milvus Lite 嵌入式**（进程内运行，数据即单文件，无需 docker/etcd/minio）；
+  也可指向独立 Milvus 服务 `http://<ip>:19530`
+- **SQLite** — 会话历史（`HISTORY_DB_PATH=./data/history.db`，零中间件）
+- **本地目录存储** — 文档/图片（`STORAGE_LOCAL_DIR=./storage`，由 API 挂载 `/storage` 静态路由）
 - **OpenAI 兼容 LLM** — Qwen via DashScope
-- **本地 GPU 模型**（`cuda:0`，fp16）— BGE-M3 向量、BGE-reranker-large 重排、MinerU 文档解析
+- **Embedding（EMBED_MODE 三档）**：
+  - `local-onnx`（默认）：fastembed ONNX CPU 推理，仅 dense 向量，模型 ~100MB 自动缓存
+  - `api`：DashScope text-embedding API，仅 dense，内存最省、按量计费
+  - `local-gpu`：BGE-M3 本地推理，dense+sparse 双向量（需 `uv sync --extra gpu`）
+- **MinerU / rerank 均为 API 模式**（`.env` 配置 token），不占本地资源
+
+⚠️ 切换 `EMBED_MODE` 会改变向量维度与语义空间，旧 Milvus 集合必须换名重建
+（改 `CHUNKS_COLLECTION` / `ITEM_NAME_COLLECTION` 为新集合名，或手动 drop）。
 
 ## 快速开始
 
 ```bash
-uv sync                    # 或使用已有 .venv
+uv sync                    # 或使用已有 .venv（GPU 满血模式加 --extra gpu）
 cp .env.example .env       # 填写各子系统 Key / 地址
-# 先拉起 Milvus / MongoDB / MinIO
 python web/api/import_service.py   # 导入服务 :8000
 python web/api/query_service.py    # 查询服务 :8001
 ```
+
+- 2 核 2G 服务器：保持 `EMBED_MODE=local-onnx`（或改 `api` 更省），
+  `MILVUS_URL=./milvus.db`，无需任何 docker 依赖
+- 本机 GPU 满血：`EMBED_MODE=local-gpu` + `uv sync --extra gpu`
 
 ## 架构
 
@@ -55,7 +67,7 @@ node_item_name_confirm（无法唯一确认 → 直接澄清/拒答，跳过检�
       node_search_embedding          （向量检索）
       node_search_embedding_hyde     （假设文档向量检索）
       node_web_search_mcp            （联网搜索）
-  → node_rrf（RRF 融合）→ node_rerank（BGE 重排）
+  → node_rrf（RRF 融合）→ node_rerank（DashScope 重排 API）
   → node_answer_output（LLM 流式生成）→ END
 ```
 
@@ -65,5 +77,5 @@ node_item_name_confirm（无法唯一确认 → 直接澄清/拒答，跳过检�
 ## 说明
 
 - 更详细的开发 guidance 与易踩坑清单见 `CLAUDE.md`。
-- ⚠️ `DATA_BASED_ROOT_DIR` 环境变量无默认值且不在 `.env.example` 中，
-  不设置会导致 `/upload` 在 `os.path.join` 处失败。
+- `DATA_BASED_ROOT_DIR`（上传文件落地目录）建议在 `.env` 明确设置（模板默认 `./data/files`），
+  未设置时 `/upload` 会在 `os.path.join` 处失败。

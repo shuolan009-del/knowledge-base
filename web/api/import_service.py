@@ -8,14 +8,15 @@ from typing import List, Dict, Any
 
 from starlette.responses import FileResponse
 
-from config.minio_config import minio_config
+from config.storage_config import storage_config
 from processor.import_processor.main_graph import KBImportWorkflow
 from tool.logger import logger
 import uvicorn
 from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 
-from utils.minio_utils import get_minio_client
+from utils.storage_utils import save_file
 from utils.task_utils import (
     update_task_status,
     add_done_task,
@@ -40,7 +41,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 3. 静态页面路由
+# 3. 静态资源路由：本地存储目录（图片等）挂载到 /storage
+os.makedirs(storage_config.local_dir, exist_ok=True)
+app.mount("/storage", StaticFiles(directory=storage_config.local_dir), name="storage")
+
+# 4. 静态页面路由
 @app.get("/import.html")
 async def get_import_page():
     current_dir_parent_path = Path(__file__).absolute().parent.parent
@@ -93,19 +98,14 @@ async def upload_files(background_tasks: BackgroundTasks, files: List[UploadFile
             shutil.copyfileobj(file.file, file_buffer)
         logger.info(f"[{task_id}] 文件已保存至本地，路径：{import_file_path}")
 
-        minio_object_name = f"pdf_files/{datetime.now().strftime('%Y%m%d')}/{file.filename}"
+        # 原始文件已保存在本地 import_file_path，此处额外备份到本地存储目录（对应原 MinIO 备份）
+        storage_object_name = f"pdf_files/{datetime.now().strftime('%Y%m%d')}/{file.filename}"
         try:
-            minio_client = get_minio_client()
-            minio_bucket_name = minio_config.bucket_name
-            minio_client.fput_object(
-                bucket_name=minio_bucket_name,
-                object_name=minio_object_name,
-                file_path=import_file_path,
-                content_type=file.content_type
-            )
-            logger.info(f"[{task_id}] 文件已成功上传至MinIO，桶名：{minio_bucket_name}，对象名：{minio_object_name}")
+            if save_file(import_file_path, storage_object_name) is None:
+                raise RuntimeError("save_file 返回空")
+            logger.info(f"[{task_id}] 文件已成功备份至本地存储，对象名：{storage_object_name}")
         except Exception as e:
-            logger.warning(f"[{task_id}] 文件上传MinIO失败，将继续执行本地处理流程，异常信息：{str(e)}", exc_info=True)
+            logger.warning(f"[{task_id}] 文件备份本地存储失败，将继续执行本地处理流程，异常信息：{str(e)}", exc_info=True)
 
         add_done_task(task_id, "upload_file")
 

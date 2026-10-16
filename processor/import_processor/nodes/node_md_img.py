@@ -10,15 +10,13 @@ from pathlib import Path
 from typing import Tuple, List, Deque, Dict
 
 from langchain_openai import ChatOpenAI
-from minio import Minio
-from minio.deleteobjects import DeleteObject
 
 from config.lm_config import lm_config
-from config.minio_config import minio_config
+from config.storage_config import storage_config
 from processor.import_processor.base import BaseNode, setup_logging
 from processor.import_processor.exceptions import StateFieldError, FileProcessingError
 from processor.import_processor.state import ImportGraphState
-from utils.minio_utils import get_minio_client
+from utils.storage_utils import clean_dir, save_file
 
 #  分发节点 + PDF转MD节点  +  MD解析节点
 class NodeMDImg(BaseNode):
@@ -36,7 +34,7 @@ class NodeMDImg(BaseNode):
         1. 获取MD内容、文件路径、图片文件夹路径
         2. 扫描图片文件夹，筛选MD中实际引用的支持格式图片
         3. 调用多模态大模型为图片生成内容摘要
-        4. 将图片上传至MinIO，替换MD中本地图片路径为MinIO访问URL，并填充图片摘要
+        4. 将图片复制到本地存储，替换MD中本地图片路径为存储访问URL，并填充图片摘要
         5. 备份原MD文件，保存处理后的新MD文件并更新状态
 
         :param state: md_path、md_content
@@ -61,7 +59,7 @@ class NodeMDImg(BaseNode):
         # 步骤3：调用多模态大模型生成图片摘要
         summaries = self._step_3_generate_summaries(md_path_obj.stem, target_images)
         print(summaries)
-        # 步骤4：上传图片至MinIO，替换MD图片路径并填充摘要
+        # 步骤4：将图片复制到本地存储，替换MD图片路径并填充摘要
         new_md_content = self._step_4_upload_and_replace(md_path_obj.stem, target_images, summaries, md_content)
 
         # 步骤5：备份并保存新MD文件
@@ -100,44 +98,39 @@ class NodeMDImg(BaseNode):
         步骤 4: 上传图片并合并信息，然后替换 Markdown 中的内容。
 
         流程：
-        1. 确定 MinIO 上的上传目录（按文档名隔离）。
+        1. 确定本地存储的上传目录（按文档名隔离）。
         2. 清理该目录下的旧数据。
-        3. 批量上传图片。
+        3. 批量保存图片。
         4. 合并“图片摘要”和“图片URL”。
         5. 替换 Markdown 文本中的图片引用。
-        :param doc_stem: 文档文件名（不含后缀），作为MinIO上传子目录名（按文档隔离）
+        :param doc_stem: 文档文件名（不含后缀），作为存储子目录名（按文档隔离）
         :param target_images: 待处理图片列表，元素为(图片文件名, 图片完整路径, 图片上下文)
         :param summaries: 图片摘要字典，键：图片文件名，值：内容摘要
         :param md_content: 原始MD文件内容
         :return: 图片引用替换后的新MD内容
         """
 
-        # 1. 获取MinIO客户端
-        minio_client = get_minio_client()
+        # 1. 获取图片上传路径（存储内相对目录）
+        upload_dir = f"{storage_config.img_dir}/{doc_stem}".replace(" ", "")
 
-        # 2. 获取图片上传路径
-        minio_dir = minio_config.img_dir
-        upload_dir = f"{minio_dir}/{doc_stem}".replace(" ", "")
+        # 2. 清理已有目录
+        self._clean_storage_dir(upload_dir)
 
-        # 3. 清理已有目录
-        self._clean_minio_dir(minio_client, upload_dir)
+        # 3. 批量上传
+        urls = self._upload_images_batch(upload_dir, target_images)
 
-        # 4.批量上传
-        urls = self._upload_images_batch(minio_client, upload_dir, target_images)
-
-        # 5. 合并图片摘要和URL，过滤上传失败的图片
-        # 图片已经上传 已经有 在线的链接 192.168.10.100   机房  ip+绑定域名
+        # 4. 合并图片摘要和URL，过滤上传失败的图片
         image_info = self._merge_summary_and_url(summaries, urls)
 
-        # 6. 替换MD中的图片引用
+        # 5. 替换MD中的图片引用
         md_content = self._process_md_file(md_content, image_info)
 
         return md_content
 
     def _process_md_file(self, md_content: str, image_info: Dict[str, Tuple[str, str]]) -> str:
         """
-        核心功能：替换MD内容中的本地图片引用为MinIO远程引用
-        替换规则：![原描述](本地路径) → ![图片摘要](MinIO访问URL)
+        核心功能：替换MD内容中的本地图片引用为存储访问URL
+        替换规则：![原描述](本地路径) → ![图片摘要](存储URL)
         :param md_content: 原始MD文件内容
         :param image_info: 合并后的图片信息字典，键：图片文件名，值：(摘要, URL)
         :return: 替换后的新MD内容
@@ -154,7 +147,7 @@ class NodeMDImg(BaseNode):
         """
         合并图片摘要字典和URL字典，过滤掉上传失败无URL的图片
         :param summaries: 图片摘要字典，键：图片文件名，值：内容摘要
-        :param urls: 图片URL字典，键：图片文件名，值：MinIO访问URL
+        :param urls: 图片URL字典，键：图片文件名，值：存储访问URL
         :return: 合并后的图片信息字典，键：图片文件名，值：(摘要, URL)元组
         """
         image_info = {}
@@ -163,64 +156,42 @@ class NodeMDImg(BaseNode):
                 image_info[image_file] = (summary, url)
         return image_info
 
-    def _upload_images_batch(self, minio_client: Minio, upload_dir: str, target_images: List[Tuple]) -> Dict[str, str]:
+    def _upload_images_batch(self, upload_dir: str, target_images: List[Tuple]) -> Dict[str, str]:
         """
-        批量上传待处理图片至MinIO，返回图片文件名与访问URL的映射关系
-        :param minio_client: 初始化完成的MinIO客户端对象
-        :param upload_dir: MinIO上传根目录
+        批量保存待处理图片至本地存储，返回图片文件名与访问URL的映射关系
+        :param upload_dir: 存储内上传目录
         :param target_images: 待处理图片列表，元素为(图片文件名, 图片完整路径, 图片上下文)
-        :return: 图片URL字典，键：图片文件名，值：MinIO访问URL
+        :return: 图片URL字典，键：图片文件名，值：访问URL
         """
         urls = {}
         for img_file, img_path, _ in target_images:
             object_name = f"{upload_dir}/{img_file}"
-            urls[img_file] = self._upload_to_minio(minio_client, img_path, object_name)
+            urls[img_file] = self._upload_image(img_path, object_name)
         return urls
 
-    def _upload_to_minio(self, minio_client: Minio, local_path: str, object_name: str) -> str | None:
+    def _upload_image(self, local_path: str, object_name: str) -> str | None:
         """
-        将单张本地图片上传至MinIO对象存储，并返回公网可访问URL
-        :param minio_client: 初始化完成的MinIO客户端对象
+        将单张本地图片复制到本地存储目录，并返回访问URL
         :param local_path: 图片本地完整路径
-        :param object_name: MinIO中要存储的对象名称
-        :return: 图片MinIO访问URL（上传失败返回None）
+        :param object_name: 存储内相对路径
+        :return: 图片访问URL（保存失败返回None）
         """
 
         try:
-            # 要上传的文件 的 类型
-            content_type = os.path.splitext(local_path)[1][1:]
-            minio_client.fput_object(
-                bucket_name = minio_config.bucket_name,# 云端的桶
-                object_name=object_name,# 云端的路径
-                file_path=local_path,# 本机的路径
-                content_type=f"image/{content_type}", # 图片的类型  "image/jpg"
-            )
-
-            #组织图片url  拿回  网盘链接
-            url = f"http://{minio_config.endpoint}/{minio_config.bucket_name}/{object_name}"
+            url = save_file(local_path, object_name)
+            if url is None:
+                self.logger.error(f"保存图片失败：{local_path}")
             return url
         except Exception as e:
-            self.logger.error(f"上传图片失败：{local_path}")
+            self.logger.error(f"保存图片失败：{local_path}，错误：{e}")
+            return None
 
-    def _clean_minio_dir(self, minio_client: Minio, update_dir: str) -> None:
-        update_dir = update_dir.strip("/")
+    def _clean_storage_dir(self, update_dir: str) -> None:
+        """按文档维度清理存储子目录（对应原 MinIO 旧图清理）"""
         try:
-            # 1. 获取将要被删除的图片列表
-            objects_to_delete = minio_client.list_objects(minio_config.bucket_name, update_dir, recursive=True)
-
-            delete_list = [DeleteObject(obj.object_name) for obj in objects_to_delete]
-            errors = minio_client.remove_objects(
-                minio_config.bucket_name,
-                #需要一个 [DeleteObject]
-                delete_list,
-            )
-
-            #2. 打印错误信息
-            for error in errors:
-                self.logger.error(f"删除图片错误：{error}")
-
+            clean_dir(update_dir)
         except Exception as e:
-            self.logger.error(f"MinIO连接失败，错误原因：{e}")
+            self.logger.error(f"清理图片目录失败，错误原因：{e}")
 
     def _step_3_generate_summaries(self, doc_stem: str, target_images: List[Tuple[str, str, Tuple[str, str]]]) -> Dict[str, str]:
         """

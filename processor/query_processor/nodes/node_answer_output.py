@@ -9,7 +9,7 @@ from tool.logger import logger
 from processor.query_processor.base import NodeBase
 from processor.query_processor.state import QueryGraphState
 from utils.llm_utils import get_llm_client
-from utils.mongo_history_utils import save_chat_message
+from utils.history_utils import save_chat_message
 from utils.sse_utils import push_to_session, SSEEvent
 from utils.task_utils import set_task_result, add_done_task
 
@@ -29,7 +29,7 @@ class NodeAnswerOutput(NodeBase):
         1 判断state 中的answer是否已经存在，如果存在直接输出answer中的答案，注意判断是否需要流式输出需要则流式输出
         2 根据state中的问题、重新问题、历史对话、提问商品（item_names）、 重排内容 组织prompt 并调用llm 生成答案
         3 调用大模型输出答案 注意判断是否需要流式输出需要则流式输出
-        4 把答案写入到mongodb的history中 利用utils/mongo_history_utils.py中的save_chat_message方法
+        4 把答案写入到SQLite的history中 利用utils/history_utils.py中的save_chat_message方法
         5 做最后一次push操作（主要是为了触发前端图片渲染)
              {
                 "answer": "HAK 180 烫金机的操作面板位于...（大模型生成的纯文本）...",
@@ -55,9 +55,9 @@ class NodeAnswerOutput(NodeBase):
         # 阶段四： 提取图片URL（用于历史记录和前端展示）
         image_urls = self._extract_images_from_docs(state.get("reranked_docs") or [])
 
-        # 阶段五：把答案写入到mongodb的history中
+        # 阶段五：把答案写入到SQLite的history中
         if state.get("answer"):
-            logger.info("---写入MongoDB历史记录---")
+            logger.info("---写入SQLite历史记录---")
             self._step_4_write_history(state, image_urls=image_urls)
 
         add_done_task(state['session_id'], self.name, state.get("is_stream"))
@@ -322,8 +322,8 @@ class NodeAnswerOutput(NodeBase):
 
     def _step_4_write_history(seld, state: QueryGraphState, image_urls=None) -> QueryGraphState:
         """
-        阶段四：把本轮答案写入 MongoDB history。
-        利用 utils/mongo_history_utils.py 中的 save_chat_messages 方法。
+        阶段四：把本轮答案写入 SQLite history。
+        利用 utils/history_utils.py 中的 save_chat_message 方法。
         """
         session_id = state.get("session_id", "default")
         answer = (state.get("answer") or "").strip()
@@ -342,7 +342,7 @@ class NodeAnswerOutput(NodeBase):
                 )
         except Exception as e:
             # 写历史失败不应影响主链路
-            logger.error(f"写入Mongo历史记录失败: {e}")
+            logger.error(f"写入SQLite历史记录失败: {e}")
 
         return state
 

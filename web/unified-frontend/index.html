@@ -4,51 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#fbfbfd" />
-  <meta name="description" content="掌柜智库 · 知识库智能智库：文档建库与对话检索" />
-  <title>掌柜智库 · 知识库</title>
+  <meta name="description" content="禾语农产品知识库 · 禾语农产品智能商管平台：产品手册 RAG 问答与建库" />
+  <title>禾语农产品知识库 · 禾语农产品智能商管平台</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230071e3'/%3E%3Cpath d='M9 11h14M9 16h14M9 21h9' stroke='white' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="styles.css" />
-  <script>
-    /* 登录门禁引导：首次渲染前决定「锁定 / 已登录」，避免未登录时内容一闪而过（FOUC）。
-       真正的校验逻辑见 app.js 的 authModule（checkAuth / submitLogin / logout）。 */
-    (function () {
-      try {
-        var authed = localStorage.getItem('kb.auth') === 'ok';
-        document.documentElement.classList.add(authed ? 'is-authed' : 'is-locked');
-      } catch (e) {
-        document.documentElement.classList.add('is-locked');
-      }
-    })();
-  </script>
+
 </head>
 <body>
-  <!-- ===================== 登录门禁（全站共用） ===================== -->
-  <div class="login-view" id="loginView">
-    <div class="login-bg" aria-hidden="true"></div>
-    <form class="login-card" id="loginForm" novalidate>
-      <span class="login-logo" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="none">
-          <path d="M5 8h14M5 12h14M5 16h9" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-        </svg>
-      </span>
-      <h1 class="login-title">掌柜智库</h1>
-      <p class="login-sub">登录后即可使用文档建库与对话检索</p>
 
-      <label class="login-field">
-        <span>用户名</span>
-        <input type="text" id="loginUser" autocomplete="username" placeholder="请输入用户名" spellcheck="false" />
-      </label>
-      <label class="login-field">
-        <span>密码</span>
-        <input type="password" id="loginPass" autocomplete="current-password" placeholder="请输入密码" />
-      </label>
-
-      <p class="login-error" id="loginError" role="alert" aria-live="polite"></p>
-
-      <button class="btn btn-primary login-submit" id="loginSubmit" type="submit">登录</button>
-      <p class="login-hint">演示账号：<b>admin</b> / <b>kb2024</b></p>
-    </form>
-  </div>
 
   <!-- ===================== 导航（全站共用） ===================== -->
   <header class="nav" id="nav">
@@ -59,7 +22,7 @@
             <path d="M5 8h14M5 12h14M5 16h9" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
           </svg>
         </span>
-        <span class="nav-name">掌柜智库</span>
+        <span class="nav-name">禾语农产品知识库</span>
       </a>
 
       <nav class="nav-links" aria-label="主导航">
@@ -91,7 +54,8 @@
           </div>
         </div>
 
-        <button class="nav-ghost" id="btnSettings" type="button">
+        <a class="nav-ghost" href="http://127.0.0.1:5174/" target="_blank" rel="noopener" title="返回禾语农产品智能商管平台门户">门户</a>
+      <button class="nav-ghost" id="btnSettings" type="button">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" aria-hidden="true">
             <circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.8" />
             <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.65 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.56 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
@@ -116,7 +80,7 @@
       <div class="hero-bg" aria-hidden="true"></div>
       <div class="hero-inner">
         <p class="eyebrow reveal">Knowledge Base Platform</p>
-        <h1 class="hero-title reveal">掌柜智库</h1>
+        <h1 class="hero-title reveal">禾语农产品知识库</h1>
         <p class="hero-sub reveal">
           上传产品手册，自动构建专属向量知识库；<br class="br-md" />
           用一句自然语言提问，得到带阶段进度的可信回答。
@@ -206,7 +170,7 @@
             <path d="M5 8h14M5 12h14M5 16h9" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
           </svg>
         </span>
-        <span>掌柜智库 · 知识库智能智库</span>
+        <span>禾语农产品知识库 · 禾语农产品智能商管平台</span>
       </div>
       <div class="footer-links">
         <a href="import.html">建库</a>

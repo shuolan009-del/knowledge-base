@@ -9,7 +9,7 @@ from tool.logger import logger
 from utils.embedding_utils import generate_embeddings
 from utils.json_format_utils import serialize_json
 from utils.llm_utils import get_llm_client
-from utils.milvus_utils import create_hybrid_search_requests, get_milvus_client, hybrid_search
+from utils.milvus_utils import get_milvus_client, search_by_embeddings
 from utils.task_utils import add_done_task
 
 
@@ -30,9 +30,9 @@ class NodeSearchEmbeddingHyde(NodeBase):
         执行步骤：
         1. 参数提取：从会话状态中获取改写后的查询（rewritten_query）和已确认的商品名（item_names）。
         2. 生成假设文档 (Step 1)：调用LLM，基于用户问题生成一段假设性的理想回答（即HyDE文档）。
-        3. 混合检索 (Step 2)：
-           - 将“用户问题 + 假设文档”合并，生成BGE-M3稠密+稀疏向量。
-           - 在Milvus中执行混合检索（带商品名过滤），召回最相似的知识切片。
+        3. 向量检索 (Step 2)：
+           - 将“用户问题 + 假设文档”合并，生成 Dense 向量（local-gpu 模式另有 Sparse）。
+           - 在Milvus中执行向量检索（带商品名过滤），召回最相似的知识切片。
         4. 结果封装：返回检索到的切片列表和生成的假设文档，更新会话状态。
 
         :param state: 会话状态字典，包含 rewritten_query, item_names 等
@@ -88,10 +88,10 @@ class NodeSearchEmbeddingHyde(NodeBase):
             # combined
             combined_text = rewritten_query + " " + hyde_doc
 
-            # 2、生成向量 (Dense + Sparse)
+            # 2、生成向量 (Dense；local-gpu 模式另有 Sparse)
             embeddings = generate_embeddings([combined_text])
             dense_vec = embeddings.get("dense")[0]# 稠密向量
-            sparse_vec = embeddings.get("sparse")[0]#稀疏向量
+            sparse_vec = (embeddings.get("sparse") or [None])[0]#稀疏向量
 
             # 3. 获取Milvus的集合
             collection_name = milvus_config.chunks_collection
@@ -107,23 +107,18 @@ class NodeSearchEmbeddingHyde(NodeBase):
             else:
                 logger.info("步骤2: 未指定商品名过滤，将全库检索")
 
-            # 5、构造Milvus混合搜索请求对象
-            reqs = create_hybrid_search_requests(
+            # 5、执行向量检索（有稀疏向量走混合检索，无则纯稠密检索）
+            logger.info("步骤2: 开始执行 Milvus 检索...")
+            client = get_milvus_client()
+            res = search_by_embeddings(
+                client=client,
+                collection_name=collection_name,
                 dense_vector=dense_vec,
                 sparse_vector=sparse_vec,
                 expr=expr,
-                limit=10  # 底层检索返回数量（后续会再过滤为5，预留更多结果做重排序）
-            )
-
-            # 6、执行混合向量检索
-            logger.info("步骤2: 开始执行 Milvus 混合检索...")
-            client = get_milvus_client()
-            res = hybrid_search(
-                client=client,
-                collection_name=collection_name,
-                reqs=reqs,
-                ranker_weights=(0.8, 0.2),
+                limit=10,  # 底层检索返回数量（后续会再过滤为5，预留更多结果做重排序）
                 output_fields=["chunk_id", "content", "item_name"],
+                ranker_weights=(0.8, 0.2),
             )
 
             return res[0] if res else []
